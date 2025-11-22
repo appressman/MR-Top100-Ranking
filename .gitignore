@@ -1,0 +1,34 @@
+# Composer
+/vendor/
+/composer.phar
+composer.lock
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/*.log
+*.log
+
+# Reports
+reports/
+
+# Lock file
+run.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp
+/tmp/
+*.tmp
