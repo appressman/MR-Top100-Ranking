@@ -340,17 +340,20 @@ function storeObservation($db, int $runId, array $fileInfo, array $metadata, ?ar
 function sendSuccessEmail(Config $config, Logger $logger, string $labelMonth, array $rankedTracks, string $csvPath, int $matched, int $unmatched): void
 {
     try {
-        $oauthManager = new OAuthManager(
-            $config->get('GMAIL_OAUTH_CLIENT_ID'),
-            $config->get('GMAIL_OAUTH_CLIENT_SECRET'),
-            $config->get('GMAIL_OAUTH_REFRESH_TOKEN')
-        );
+        // Try reports@mastersradio.com first, fallback to adam.pressman@mastersradio.com
+        $username = $config->get('SMTP_USERNAME', 'adam.pressman@mastersradio.com');
+        $password = $config->get('GMAIL_APP_PASSWORD');
+        
+        if (empty($password)) {
+            throw new \Exception("GMAIL_APP_PASSWORD not configured in .env");
+        }
         
         $mailer = new Mailer(
             $logger,
-            $oauthManager,
             $config->get('SMTP_HOST'),
             $config->getInt('SMTP_PORT'),
+            $username,
+            $password,
             $config->get('SMTP_FROM_EMAIL'),
             $config->get('SMTP_FROM_NAME')
         );

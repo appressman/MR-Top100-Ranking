@@ -7,29 +7,32 @@ use PHPMailer\PHPMailer\Exception as PHPMailerException;
 use MastersRadio\Top100\Logger;
 
 /**
- * Email sender using PHPMailer with Gmail OAuth2
+ * Email sender using PHPMailer with Gmail SMTP
  */
 class Mailer
 {
     private Logger $logger;
-    private OAuthManager $oauthManager;
     private string $smtpHost;
     private int $smtpPort;
+    private string $username;
+    private string $password;
     private string $fromEmail;
     private string $fromName;
 
     public function __construct(
         Logger $logger,
-        OAuthManager $oauthManager,
         string $smtpHost,
         int $smtpPort,
+        string $username,
+        string $password,
         string $fromEmail,
         string $fromName
     ) {
         $this->logger = $logger;
-        $this->oauthManager = $oauthManager;
         $this->smtpHost = $smtpHost;
         $this->smtpPort = $smtpPort;
+        $this->username = $username;
+        $this->password = $password;
         $this->fromEmail = $fromEmail;
         $this->fromName = $fromName;
     }
@@ -126,7 +129,7 @@ class Mailer
     }
 
     /**
-     * Create configured PHPMailer instance with OAuth2
+     * Create configured PHPMailer instance
      */
     private function createMailer(): PHPMailer
     {
@@ -139,14 +142,9 @@ class Mailer
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
         $mail->SMTPAuth = true;
         
-        // OAuth2 authentication
-        $mail->AuthType = 'XOAUTH2';
-        $accessToken = $this->oauthManager->getAccessToken();
-        
-        // Set OAuth2 credentials manually (PHPMailer's OAuth class requires league/oauth2-client)
-        // We'll use a simpler approach with direct SMTP XOAUTH2
-        $mail->Username = $this->fromEmail;
-        $mail->Password = $accessToken;
+        // Authentication
+        $mail->Username = $this->username;
+        $mail->Password = $this->password;
         
         // From address
         $mail->setFrom($this->fromEmail, $this->fromName);
