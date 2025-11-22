@@ -29,7 +29,7 @@ class RankingEngine
         $this->logger->info("Ranking " . count($tracks) . " tracks");
 
         // Sort tracks using multi-level criteria
-        usort($tracks, [$this, 'compareTracksl']);
+        usort($tracks, [$this, 'compareTracks']);
 
         // Take top N
         $topTracks = array_slice($tracks, 0, $this->topN);
