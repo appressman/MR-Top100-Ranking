@@ -4,11 +4,6 @@
 -- Migration: 001 - Initial schema
 -- ============================================================================
 
-CREATE DATABASE IF NOT EXISTS top100 
-  CHARACTER SET utf8mb4 
-  COLLATE utf8mb4_unicode_ci;
-
-USE top100;
 
 -- ----------------------------------------------------------------------------
 -- TABLE: tracks
