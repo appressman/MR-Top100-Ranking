@@ -217,10 +217,21 @@ try {
     }
     
     $logger->info("Matching complete: {$matched} matched, {$unmatched} unmatched");
-    
-    // Generate rankings
+
+    // Filter tracks by upload eligibility window
+    $eligibilityMonths = $config->getInt('ELIGIBILITY_MONTHS', 3);
+    $eligibleTracks = $matchedTracks;
+
+    if ($eligibilityMonths > 0) {
+        $eligibleTracks = filterByUploadDate($matchedTracks, $labelMonth, $eligibilityMonths, $logger);
+        $logger->info("Eligibility filter: {$eligibilityMonths} months - " . count($eligibleTracks) . " of {$matched} tracks eligible for Top 100");
+    } else {
+        $logger->info("Eligibility filter: Disabled (all matched tracks eligible)");
+    }
+
+    // Generate rankings (using only eligible tracks)
     $ranker = new RankingEngine($logger, $config->getInt('TOP_N_TRACKS', 100));
-    $rankedTracks = $ranker->rank($matchedTracks);
+    $rankedTracks = $ranker->rank($eligibleTracks);
     
     $logger->info("Generated " . count($rankedTracks) . " rankings");
     
@@ -240,7 +251,7 @@ try {
     
     // Send email (if not dry run)
     if (!$dryRun) {
-        sendSuccessEmail($config, $logger, $labelMonth, $rankedTracks, $csvPath, $matched, $unmatched);
+        sendSuccessEmail($config, $logger, $labelMonth, $rankedTracks, $csvPath, $matched, $unmatched, count($eligibleTracks), $eligibilityMonths);
     } else {
         $logger->info("Dry run mode: Skipping email");
     }
@@ -337,17 +348,17 @@ function storeObservation($db, int $runId, array $fileInfo, array $metadata, ?ar
     $logger->debug("Would store observation for: {$fileInfo['filename']}");
 }
 
-function sendSuccessEmail(Config $config, Logger $logger, string $labelMonth, array $rankedTracks, string $csvPath, int $matched, int $unmatched): void
+function sendSuccessEmail(Config $config, Logger $logger, string $labelMonth, array $rankedTracks, string $csvPath, int $matched, int $unmatched, int $eligible = 0, int $eligibilityMonths = 0): void
 {
     try {
         // Try reports@mastersradio.com first, fallback to adam.pressman@mastersradio.com
         $username = $config->get('SMTP_USERNAME', 'adam.pressman@mastersradio.com');
         $password = $config->get('GMAIL_APP_PASSWORD');
-        
+
         if (empty($password)) {
             throw new \Exception("GMAIL_APP_PASSWORD not configured in .env");
         }
-        
+
         $mailer = new Mailer(
             $logger,
             $config->get('SMTP_HOST'),
@@ -357,12 +368,12 @@ function sendSuccessEmail(Config $config, Logger $logger, string $labelMonth, ar
             $config->get('SMTP_FROM_EMAIL'),
             $config->get('SMTP_FROM_NAME')
         );
-        
+
         $monthName = date('F Y', strtotime($labelMonth . '-01'));
         $subject = "Masters Radio Top 100 for {$monthName}";
-        
-        $htmlBody = generateEmailBody($rankedTracks, $matched, $unmatched, $monthName);
-        
+
+        $htmlBody = generateEmailBody($rankedTracks, $matched, $unmatched, $monthName, $eligible, $eligibilityMonths);
+
         $mailer->sendSuccessEmail(
             $config->get('REPORT_TO_EMAIL'),
             $config->get('REPORT_TO_NAME'),
@@ -370,17 +381,17 @@ function sendSuccessEmail(Config $config, Logger $logger, string $labelMonth, ar
             $htmlBody,
             $csvPath
         );
-        
+
     } catch (\Exception $e) {
         $logger->error("Failed to send email: " . $e->getMessage());
     }
 }
 
-function generateEmailBody(array $rankedTracks, int $matched, int $unmatched, string $monthName): string
+function generateEmailBody(array $rankedTracks, int $matched, int $unmatched, string $monthName, int $eligible = 0, int $eligibilityMonths = 0): string
 {
     $topTracksHtml = '';
     $displayCount = min(10, count($rankedTracks));
-    
+
     for ($i = 0; $i < $displayCount; $i++) {
         $track = $rankedTracks[$i];
         $topTracksHtml .= "<tr>\n";
@@ -390,7 +401,13 @@ function generateEmailBody(array $rankedTracks, int $matched, int $unmatched, st
         $topTracksHtml .= "  <td>{$track['popularity']}</td>\n";
         $topTracksHtml .= "</tr>\n";
     }
-    
+
+    // Build eligibility info
+    $eligibilityHtml = '';
+    if ($eligibilityMonths > 0) {
+        $eligibilityHtml = "Eligible for Top 100: {$eligible} tracks (uploaded within {$eligibilityMonths} months)<br>";
+    }
+
     return <<<HTML
 <!DOCTYPE html>
 <html>
@@ -398,6 +415,7 @@ function generateEmailBody(array $rankedTracks, int $matched, int $unmatched, st
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .summary { background: #f4f4f4; padding: 15px; border-radius: 5px; margin: 20px 0; }
+        .eligibility { background: #e8f4f8; padding: 10px; border-radius: 5px; margin: 10px 0; border-left: 4px solid #3498db; }
         table { border-collapse: collapse; width: 100%; margin: 20px 0; }
         th { background: #2c3e50; color: white; padding: 10px; text-align: left; }
         td { padding: 8px; border-bottom: 1px solid #ddd; }
@@ -407,14 +425,15 @@ function generateEmailBody(array $rankedTracks, int $matched, int $unmatched, st
 </head>
 <body>
     <h1>Masters Radio Top 100 - {$monthName}</h1>
-    
+
     <div class="summary">
         <strong>Run Summary:</strong><br>
-        Matched: {$matched} tracks<br>
+        Total Matched: {$matched} tracks<br>
         Unmatched: {$unmatched} tracks<br>
+        {$eligibilityHtml}
         Generated: {$monthName}
     </div>
-    
+
     <h2>Top 10 Preview</h2>
     <table>
         <thead>
@@ -429,9 +448,53 @@ function generateEmailBody(array $rankedTracks, int $matched, int $unmatched, st
             {$topTracksHtml}
         </tbody>
     </table>
-    
+
     <p><strong>Full Top 100 rankings are available in the attached CSV file.</strong></p>
+    <p><em>Note: Only songs uploaded within the last {$eligibilityMonths} months are eligible for the Top 100 ranking.</em></p>
 </body>
 </html>
 HTML;
+}
+
+/**
+ * Filter tracks by upload date to only include those within the eligibility window
+ *
+ * @param array $tracks Array of matched tracks with file_mtime
+ * @param string $labelMonth The report month (YYYY-MM format)
+ * @param int $months Number of months back from label month to include
+ * @param Logger $logger Logger instance
+ * @return array Filtered tracks within the eligibility window
+ */
+function filterByUploadDate(array $tracks, string $labelMonth, int $months, Logger $logger): array
+{
+    // Calculate cutoff date: first day of (labelMonth - months)
+    // For labelMonth 2025-11 with 3 months: cutoff is 2025-08-01
+    $labelDate = new DateTime($labelMonth . '-01');
+    $cutoffDate = (clone $labelDate)->modify("-{$months} months");
+    $cutoffDateStr = $cutoffDate->format('Y-m-d 00:00:00');
+
+    // End date is the last moment of the label month
+    $endDate = (clone $labelDate)->modify('last day of this month');
+    $endDateStr = $endDate->format('Y-m-d 23:59:59');
+
+    $logger->debug("Upload eligibility window: {$cutoffDateStr} to {$endDateStr}");
+
+    $eligible = [];
+    $excluded = 0;
+
+    foreach ($tracks as $track) {
+        $uploadDate = $track['file_mtime'] ?? '1900-01-01 00:00:00';
+
+        // Check if upload date is within the eligibility window
+        if ($uploadDate >= $cutoffDateStr && $uploadDate <= $endDateStr) {
+            $eligible[] = $track;
+        } else {
+            $excluded++;
+            $logger->debug("Excluded (upload {$uploadDate}): {$track['artist']} - {$track['title']}");
+        }
+    }
+
+    $logger->notice("Eligibility filter excluded {$excluded} tracks uploaded outside the {$months}-month window");
+
+    return $eligible;
 }
